@@ -102,8 +102,13 @@ def mqtt_message(client, userdasta, message):
   if "state" in data:
     if data["state"] == "ON":
       writeOn()
-    else:
+    elif data["state"] == "OFF":
       writeOff()
+    elif data["state"] == "TOGGLE":
+      if state["state"] == "ON":
+        writeOff()
+      else:
+        writeOn()
 
 
 adapter.start()

@@ -4,7 +4,9 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
+WorkingDirectory=/path/to/triones2mqtt
 ExecStart=/path/to/triones2mqtt/triones2mqtt.py
+
 Restart=on-failure
 RestartSec=5s
 

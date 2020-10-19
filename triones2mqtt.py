@@ -23,7 +23,7 @@ command_topic = "triones2mqtt/light/set"
 state_topic = "triones2mqtt/light"
 availability_topic = "triones2mqtt/availability"
 
-if config["homeassistant"] != None
+if config["homeassistant"] != None:
   haConfig = {
     "white_value": True,
     "rgb": True,
@@ -122,14 +122,14 @@ try:
   sys.stdout.flush()
   client = mqtt.Client()
   client.will_set(availability_topic, "offline", 0, True)
-  if config["username"] != None and config ["password"] != None
+  if config["username"] != None and config ["password"] != None:
     client.username_pw_set(config["username"],config["password"])
   client.connect(config["server"])
   print ("MQTT Connected")
   sys.stdout.flush()
   client.subscribe(command_topic)
   client.publish(availability_topic, "online", 0, True)
-  if config["homeassistant"] != None
+  if config["homeassistant"] != None:
     client.publish("homeassistant/light/" + config["homeassistant"].replace(" ","").lower() + "/light/config",json.dumps(haConfig),0,True)
   client.on_message=mqtt_message
   client.loop_forever()

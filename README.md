@@ -1,16 +1,16 @@
-## requirements
+## Requirements
 
-pygatt - pip install pygatt[GATTTOOL]
-paho-mqtt - pip install paho-mqtt
-pexpect - pip install pexpect
+- pygatt - `# pip install pygatt[GATTTOOL]`
+- paho-mqtt - `# pip install paho-mqtt`
+- pexpect - `# pip install pexpect`
 
-compatible bluez:
+### compatible bluez:
 
-yay -Syu bluez-utils-compat
+`$ yay -Syu bluez-utils-compat`
 
-## install
+## Install
 
-create config.yaml
+create config.yaml from config.yaml.example
 
 update triones2mqtt.service to reflect install path
 

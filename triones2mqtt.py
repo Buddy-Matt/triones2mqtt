@@ -13,6 +13,7 @@ with open("config.yaml","r") as stream:
     config = yaml.load(stream, Loader=yaml.SafeLoader)
   except:
     print("malformed config file")
+    sys.stdout.flush()
     sys.exit()
 
 
@@ -61,6 +62,8 @@ def sendState():
     msg = json.dumps({"state":state["state"]})
     
   print("Sending state " + msg)
+  sys.stdout.flush()
+
   client.publish(state_topic,msg)
 
 def writeRGB(_rgb):
@@ -88,6 +91,7 @@ def writeOn():
 def mqtt_message(client, userdasta, message):
   msg = str(message.payload.decode("utf-8"))
   print("Received SET " + msg)
+  sys.stdout.flush()
   data = json.loads(msg)
   
   if "color" in data:

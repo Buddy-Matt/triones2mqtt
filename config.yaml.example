@@ -1,0 +1,5 @@
+address: FF:FF:FF:FF:FF:FF
+server: 192.168.0.1
+username: mqtt
+password: mysecretpassphrase
+homeassistant: Study Light

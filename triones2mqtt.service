@@ -1,0 +1,13 @@
+[Unit]
+Description=triones2mqtt
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/path/to/triones2mqtt/triones2mqtt.py
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
+

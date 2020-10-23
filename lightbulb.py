@@ -1,74 +1,221 @@
 import pygatt
 import json
-
+from uuid import UUID
+from pygatt.backends import Characteristic
 
 class Lightbulb:
-  __adapter = None
-  __address = None
-  __p_handle = None
-  __p_on = None
-  __p_off = None
-  __rgb_handle = None
-  __rgb_template = None
-  __wl_handle = None
-  __wl_template = None
 
-  #TODO: Read the bulb's initial state if possible
+  ##basic entry state
   __state = {
-    "state":"UNKNOWN",
-    "brightness": 0,
-    "color": {
-      "r": 0,
-      "g": 0,
-      "b": 0
-    },
-    "white_value": 0
+    "state":"UNKNOWN"
   }
 
+
+  __rgb_template = None
+  __wl_template = None
+  __ef_template = None
+
+
   def __init__(self, settings):
+    self.__address = settings["address"]
+    self.__name = settings["name"]
     self.__adapter = pygatt.GATTToolBackend()
     self.__adapter.start()
-
     self.__device = self.__adapter.connect(settings["address"])
     self.__p_handle = settings["power"]["handle"]
-    self.__p_on = settings["power"]["oncommand"]
-    self.__p_off = settings["power"]["offcommand"]
+    self.__p_template = settings["power"]["commandtemplate"]
+    self.__p_on = settings["power"]["onval"]
+    self.__p_off = settings["power"]["offval"]
 
+    light_safe_name = self.__name.lower().replace(" ","_")
+    self.__state_topic = "triones2mqtt/"+ light_safe_name
+    self.__command_topic = self.__state_topic + "/set"
+
+    
     if "rgb" in settings:
       self.__rgb_handle = settings["rgb"]["handle"]
       self.__rgb_template = settings["rgb"]["commandtemplate"]
+      self.__state["colour"] = {"r":0, "g": 0, "b": 0}
+    
     if "white-level" in settings:
       self.__wl_handle = settings["white-level"]["handle"]
       self.__wl_template = settings["white-level"]["commandtemplate"]
+      self.__state["white_level"] = 0
+
     
+    if "effects" in settings:
+      self.__ef_handle = settings["effects"]["handle"]
+      self.__ef_template = settings["effects"]["commandtemplate"]
+      self.__ef_effectlist = settings["effects"]["list"]
+      self.__state["effect"] = "none"
+
+    if "query" in settings:
+      self.__cb_template = settings["query"]["responsetemplate"]
+#      this line is a hack to get response handling working when direct subscribe causes a charateristic discovery crash
+      self.__device._callbacks[settings["query"]["responsehandle"]].add(self.__handle_data)
+      #this hack of manually creating the characteristic is becuase characteristic discovery causes issues also works
+#      self.__device._characteristics[UUID(settings["query"]["responseuuid"])] = Characteristic(settings["query"]["responseuuid"],settings["query"]["responsehandle"])
+#      self.__device.subscribe(settings["query"]["responseuuid"],
+#                     callback=self.__handle_data)
+      self.__device.char_write_handle(7, bytearray(settings["query"]["command"]))
+
+
+
+
+
+  
+  def __handle_data(self,handle,value):
+    cblen = len(self.__cb_template)
+    newstate = {}
+    if len(value) == cblen:
+      for i in range(cblen):
+        tplval = self.__cb_template[i]
+        val = value[i]
+
+        if type(tplval) is int or tplval.isnumeric():
+          if tplval != val: return
+        else:
+          if tplval == "pw":
+            newstate["state"] = "ON" if val == self.__p_on else "OFF"
+          elif tplval == "ef":
+            try:
+              newstate["effect"] = list(self.__ef_effectlist.keys())[list(self.__ef_effectlist.values()).index(val)]
+            except:
+              newstate["effect"] = ""
+          elif tplval == "es":
+            newstate["effect_speed"] = val
+          elif tplval in ["r","g","b"]:
+            if not "color" in newstate: newstate["color"] = {}
+            newstate["color"][tplval] = val
+          elif tplval == "wl" and self.__wl_template != None:
+            newstate["white_value"] = val
+
+    if "effect" in newstate and newstate["effect"]:
+      newstate["color"] = {"r":0, "g":0, "b": 0}
+      newstate["white_level"] = 0
+      newstate["brightness"] = 255
+
+    else:
+      if "color" in newstate:
+        color = newstate["color"]
+        if "r" in color: r = color["r"]
+        else: r = 0
+        if "g" in color: g = color["g"]
+        else: g = 0
+        if "b" in color: b = color["b"]
+        else: b = 0
+      else:
+        r = 0
+        g = 0
+        b = 0
+
+      max_c = max(r,g,b)
+
+      if max_c == 0:
+        newstate["color"] = {"r":255, "g":255, "b": 255}
+        if "white_value" in newstate: newstate["brightness"] = newstate["white_value"]
+        else: newstate["brightness"] = 0
+
+      else:
+        newstate["color"]["r"] = int(r * 255 / max_c)
+        newstate["color"]["g"] = int(g * 255 / max_c)
+        newstate["color"]["b"] = int(b * 255 / max_c)
+        newstate["brightness"] = max_c
+        newstate["white_level"] = 0
+
+    self.__state = newstate
+
+
 
   def setRGB(self, r, g, b):
-    self.__state["color"] = {"r":r,"g":g,"b":b}
-    self.__state["white_value"] = 0
-    send = []
-    for byte in self.__rgb_template:
-      if byte == "r": send.append(r)
-      elif byte == "g": send.append(g)
-      elif byte == "b": send.append(b)
-      else: send.append(byte)
-    self.__device.char_write_handle(self.__rgb_handle, bytearray(send))
+    if (r == g == b):
+      self.setWhite(self.__state["brightness"])
+    else:
+
+      self.__state["color"] = {"r":r,"g":g,"b":b}
+      self.__state["white_value"] = 0
+      self.__state["effect"] = "" 
+
+      br = self.__state["brightness"]
+
+      r = int(r * br / 255)
+      g = int(g * br / 255)
+      b = int(b * br / 255)
+
+
+      send = []
+      for byte in self.__rgb_template:
+        if byte == "r": send.append(r)
+        elif byte == "g": send.append(g)
+        elif byte == "b": send.append(b)
+        else: send.append(byte)
+      self.__device.char_write_handle(self.__rgb_handle, bytearray(send))
+
 
   def setWhite(self, wl):
-    self.__state["color"] = {"r":0,"g":0,"b":0}
     self.__state["white_value"] = wl
+    self.__state["brightness"] = wl
+    self.__state["color"] = {"r":255,"g":255,"b":255}
+    self.__state["effect"] = ""
+
     send = []
     for byte in self.__wl_template:
       if byte == "wl": send.append(wl)
       else: send.append(byte)
     self.__device.char_write_handle(self.__wl_handle, bytearray(send))
 
+
+  def setBrightness(self, br):
+    self.__state["brightness"] = br
+    if not self.__state["effect"]:
+      color = self.__state["color"]
+      r = color["r"]
+      g = color["g"]
+      b = color["b"]
+      if r == g == b:
+        self.setWhite(br)
+      else:
+        self.setRGB(r,g,b)
+
+
+  def setEffect(self, ef):
+    self.__state["effect"] = ef
+    self.__state["color"] = {"r":0,"g":0,"b":0}
+    self.__state["white_value"] = 0
+    self.__state["brightness"] = 255
+
+    send = []
+    for byte in self.__ef_template:
+      if byte == "ef": send.append(self.__ef_effectlist[ef])
+      elif byte == "es": send.append(self.__state["effect_speed"])
+      else: send.append(byte)
+    self.__device.char_write_handle(self.__ef_handle, bytearray(send))
+
+  def setEffectSpeed(self, es):
+    self.__state["effect_speed"] = es
+    if self.__state["effect"]: self.setEffect(self.__state["effect"])
+
   def turnOff(self):
-    self.__state["state"] = "OFF"
-    self.__device.char_write_handle(self.__p_handle, bytearray(self.__p_off))
+    if self.__state["state"] != "OFF":
+      self.__state["state"] = "OFF"
+      send = []
+      for byte in self.__p_template:
+        if byte == "pw": send.append(self.__p_off)
+        else: send.append(byte)
+      print(send)
+      self.__device.char_write_handle(self.__p_handle, bytearray(send))
+
 
   def turnOn(self):
-    self.__state["state"] = "ON"
-    self.__device.char_write_handle(self.__p_handle, bytearray(self.__p_on))
+    if self.__state["state"] != "ON":
+      self.__state["state"] = "ON"
+      send = []
+      for byte in self.__p_template:
+        if byte == "pw": send.append(self.__p_on)
+        else: send.append(byte)
+      print(send)
+      self.__device.char_write_handle(self.__p_handle, bytearray(send))
+
 
   def toggle(self):
     if self.__state["state"] == "ON":
@@ -77,11 +224,42 @@ class Lightbulb:
       self.turnOn()
 
 
-  def getStateJson(self):
-    if self.__state["state"] == "ON":
-      return json.dumps(self.__state)    
-    else:
-      return json.dumps({"state":self.__state["state"]})
+  def getStateJSON(self):
+    return json.dumps(self.__state)    
+
+  def getCommandTopic(self): return self.__command_topic
+  
+  def getStateTopic(self): return self.__state_topic
+
+  def getHAConfigPath(self):
+    return "homeassistant/light/" + self.__name.lower().replace(" ","_") + "/light/config"
+
+  def getHAConfigJSON(self, availability_topic):
+    formattedAddr = self.__address.replace(":","")
+
+    haConfig = {
+      "schema": "json",
+      "command_topic": self.__command_topic,
+      "state_topic": self.__state_topic,
+      "availability_topic": availability_topic,
+      "name": self.__name,
+      "unique_id": "triones2mqtt-" + formattedAddr,
+      "device": {
+        "identifiers": ["triones2mqtt-" + formattedAddr],
+        "manufacturer": "Triones",
+        "name": self.__name,
+      }
+    }
+
+    if self.__rgb_template != None: haConfig["rgb"] = True
+    if self.__wl_template != None: haConfig["white_value"] = True
+    haConfig["brightness"] = haConfig["rgb"] or haConfig["white_value"]
+
+    if self.__ef_template != None:
+      haConfig["effect"] = True
+      haConfig["effect_list"] = list(self.__ef_effectlist.keys())
+
+    return json.dumps(haConfig)
 
   def disconnect(self):
     self.__adapter.stop()

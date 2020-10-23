@@ -1,5 +1,53 @@
-address: FF:FF:FF:FF:FF:FF
-server: 192.168.0.1
-username: mqtt
-password: mysecretpassphrase
-homeassistant: Study Light
+mqtt:
+  server: 192.168.0.100
+  username: mqttuser
+  password: supersecretpassword
+
+light:
+  name: Cheap Light
+  address: FF:FF:FF:FF:FF:FF
+  query: #optional
+    handle: 7
+    command: [0xEF, 0x01, 0x77]
+    responsehandle: 3
+    responsetemplate: [0x66, 0x04, pw, ef, 0x20, es, r, g, b, wl, 0x03, 0x99]
+  rgb: #optional
+    handle: 7
+    commandtemplate: [0x56, r, g, b, 0, 0xF0, 0xAA]
+  white-level: #optional
+    handle: 7
+    commandtemplate: [0x56, 0, 0, 0, wl, 0x0F, 0xAA]
+  effects: #optional
+    handle: 7
+    commandtemplate: [0xBB, ef, es, 0x44]
+    list:
+      Pulsating_Rainbow: 0x25
+      Pulsating_Red: 0x26
+      Pulsating_Green: 0x27
+      Pulsating_Blue: 0x28
+      Pulsating_Yellow: 0x29
+      Pulsating_Cyan: 0x2A
+      Pulsating_Purple: 0x2B
+      Pulsating_White: 0x2C
+      Pulsating_Red-Green: 0x2D
+      Pulsating_Red-Blue: 0x2E
+      Pulsating_Green-Blue: 0x2F
+      Rainbow_Strobe: 0x30
+      Red_Strobe: 0x31
+      Green_Strobe: 0x32
+      Blue_Strobe: 0x33
+      Yellow_Strobe: 0x34
+      Cyan_Strobe: 0x35
+      Purple_Strobe: 0x36
+      White_Strobe: 0x37
+      Rainbow_Jumping_Change: 0x38
+  power:
+    handle: 7
+    onval: 0x23
+    offval: 0x24
+    commandtemplate: [0xCC, pw, 0x33]
+    
+
+homeassistant:
+
+

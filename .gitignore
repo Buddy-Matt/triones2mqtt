@@ -1,2 +1,3 @@
 config.yaml
 triones2mqtt.service
+__pycache__

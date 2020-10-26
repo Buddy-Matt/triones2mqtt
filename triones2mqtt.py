@@ -19,7 +19,7 @@ def mqtt_message(client, userdata, message):
   if message.topic == "homeassistant/status":
     if msg != "online": return
 
-  else:
+  elif not message.topic.endswith("/get") :
     log("Received SET " + msg)
     data = json.loads(msg)
 
@@ -93,6 +93,7 @@ try:
   log("Sent " + msg)
 
   client.subscribe(light.getCommandTopic())
+  client.subscribe(light.getGetTopic())
   client.publish(availability_topic, "online", 0, True)
   if "homeassistant" in config:
     client.publish(light.getHAConfigPath(),light.getHAConfigJSON(availability_topic),0,True)

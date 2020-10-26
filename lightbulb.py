@@ -30,6 +30,7 @@ class Lightbulb:
     light_safe_name = self.__name.lower().replace(" ","_")
     self.__state_topic = "triones2mqtt/"+ light_safe_name
     self.__command_topic = self.__state_topic + "/set"
+    self.__get_topic = self.__state_topic + "/get"
 
     
     if "rgb" in settings:
@@ -229,6 +230,8 @@ class Lightbulb:
 
   def getCommandTopic(self): return self.__command_topic
   
+  def getGetTopic(self): return self.__get_topic
+
   def getStateTopic(self): return self.__state_topic
 
   def getHAConfigPath(self):

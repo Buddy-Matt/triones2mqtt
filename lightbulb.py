@@ -1,71 +1,11 @@
-import pygatt
 import json
 from uuid import UUID
-from pygatt.backends import Characteristic
-
-class Lightbulb:
-
-  ##basic entry state
-  __state = {
-    "state":"UNKNOWN"
-  }
+from bluepy import btle
 
 
-  __rgb_template = None
-  __wl_template = None
-  __ef_template = None
+class Lightbulb(btle.DefaultDelegate):
 
-
-  def __init__(self, settings):
-    self.__address = settings["address"]
-    self.__name = settings["name"]
-    self.__adapter = pygatt.GATTToolBackend()
-    self.__adapter.start()
-    self.__device = self.__adapter.connect(settings["address"])
-    self.__p_handle = settings["power"]["handle"]
-    self.__p_template = settings["power"]["commandtemplate"]
-    self.__p_on = settings["power"]["onval"]
-    self.__p_off = settings["power"]["offval"]
-
-    light_safe_name = self.__name.lower().replace(" ","_")
-    self.__state_topic = "triones2mqtt/"+ light_safe_name
-    self.__command_topic = self.__state_topic + "/set"
-    self.__get_topic = self.__state_topic + "/get"
-
-    
-    if "rgb" in settings:
-      self.__rgb_handle = settings["rgb"]["handle"]
-      self.__rgb_template = settings["rgb"]["commandtemplate"]
-      self.__state["colour"] = {"r":0, "g": 0, "b": 0}
-    
-    if "white-level" in settings:
-      self.__wl_handle = settings["white-level"]["handle"]
-      self.__wl_template = settings["white-level"]["commandtemplate"]
-      self.__state["white_level"] = 0
-
-    
-    if "effects" in settings:
-      self.__ef_handle = settings["effects"]["handle"]
-      self.__ef_template = settings["effects"]["commandtemplate"]
-      self.__ef_effectlist = settings["effects"]["list"]
-      self.__state["effect"] = "none"
-
-    if "query" in settings:
-      self.__cb_template = settings["query"]["responsetemplate"]
-#      this line is a hack to get response handling working when direct subscribe causes a charateristic discovery crash
-      self.__device._callbacks[settings["query"]["responsehandle"]].add(self.__handle_data)
-      #this hack of manually creating the characteristic is becuase characteristic discovery causes issues also works
-#      self.__device._characteristics[UUID(settings["query"]["responseuuid"])] = Characteristic(settings["query"]["responseuuid"],settings["query"]["responsehandle"])
-#      self.__device.subscribe(settings["query"]["responseuuid"],
-#                     callback=self.__handle_data)
-      self.__device.char_write_handle(7, bytearray(settings["query"]["command"]))
-
-
-
-
-
-  
-  def __handle_data(self,handle,value):
+  def handleNotification(self, cHandle, value):
     cblen = len(self.__cb_template)
     newstate = {}
     if len(value) == cblen:
@@ -126,6 +66,61 @@ class Lightbulb:
 
     self.__state = newstate
 
+#class Lightbulb:
+
+  ##basic entry state
+  __state = {
+    "state":"UNKNOWN"
+  }
+
+
+  __rgb_template = None
+  __wl_template = None
+  __ef_template = None
+
+
+  def __init__(self, settings):
+    btle.DefaultDelegate.__init__(self)
+
+    self.__address = settings["address"]
+    self.__name = settings["name"]
+    self.__device = btle.Peripheral(settings["address"])
+    for service in self.__device.getServices():
+      print(service)
+    self.__p_handle = settings["power"]["handle"]
+    self.__p_template = settings["power"]["commandtemplate"]
+    self.__p_on = settings["power"]["onval"]
+    self.__p_off = settings["power"]["offval"]
+
+    light_safe_name = self.__name.lower().replace(" ","_")
+    self.__state_topic = "triones2mqtt/"+ light_safe_name
+    self.__command_topic = self.__state_topic + "/set"
+    self.__get_topic = self.__state_topic + "/get"
+
+    
+    if "rgb" in settings:
+      self.__rgb_handle = settings["rgb"]["handle"]
+      self.__rgb_template = settings["rgb"]["commandtemplate"]
+      self.__state["colour"] = {"r":0, "g": 0, "b": 0}
+    
+    if "white-level" in settings:
+      self.__wl_handle = settings["white-level"]["handle"]
+      self.__wl_template = settings["white-level"]["commandtemplate"]
+      self.__state["white_level"] = 0
+
+    
+    if "effects" in settings:
+      self.__ef_handle = settings["effects"]["handle"]
+      self.__ef_template = settings["effects"]["commandtemplate"]
+      self.__ef_effectlist = settings["effects"]["list"]
+      self.__state["effect"] = "none"
+
+    if "query" in settings:
+      self.__cb_template = settings["query"]["responsetemplate"]
+      #self.__device._callbacks[settings["query"]["responsehandle"]].add(self.__handle_data)
+      self.__device.setDelegate(self)
+      self.__device.writeCharacteristic(7, bytearray(settings["query"]["command"]))
+      self.__device.waitForNotifications(5)
 
 
   def setRGB(self, r, g, b):
@@ -150,7 +145,7 @@ class Lightbulb:
         elif byte == "g": send.append(g)
         elif byte == "b": send.append(b)
         else: send.append(byte)
-      self.__device.char_write_handle(self.__rgb_handle, bytearray(send))
+      self.__device.writeCharacteristic(self.__rgb_handle, bytearray(send))
 
 
   def setWhite(self, wl):
@@ -163,7 +158,7 @@ class Lightbulb:
     for byte in self.__wl_template:
       if byte == "wl": send.append(wl)
       else: send.append(byte)
-    self.__device.char_write_handle(self.__wl_handle, bytearray(send))
+    self.__device.writeCharacteristic(self.__wl_handle, bytearray(send))
 
 
   def setBrightness(self, br):
@@ -190,7 +185,7 @@ class Lightbulb:
       if byte == "ef": send.append(self.__ef_effectlist[ef])
       elif byte == "es": send.append(self.__state["effect_speed"])
       else: send.append(byte)
-    self.__device.char_write_handle(self.__ef_handle, bytearray(send))
+    self.__device.writeCharacteristic(self.__ef_handle, bytearray(send))
 
   def setEffectSpeed(self, es):
     self.__state["effect_speed"] = es
@@ -204,7 +199,7 @@ class Lightbulb:
         if byte == "pw": send.append(self.__p_off)
         else: send.append(byte)
       print(send)
-      self.__device.char_write_handle(self.__p_handle, bytearray(send))
+      self.__device.writeCharacteristic(self.__p_handle, bytearray(send))
 
 
   def turnOn(self):
@@ -215,7 +210,7 @@ class Lightbulb:
         if byte == "pw": send.append(self.__p_on)
         else: send.append(byte)
       print(send)
-      self.__device.char_write_handle(self.__p_handle, bytearray(send))
+      self.__device.writeCharacteristic(self.__p_handle, bytearray(send))
 
 
   def toggle(self):
@@ -265,4 +260,4 @@ class Lightbulb:
     return json.dumps(haConfig)
 
   def disconnect(self):
-    self.__adapter.stop()
+    self.__device.disconnect()

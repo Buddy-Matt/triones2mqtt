@@ -1,7 +1,12 @@
-import pygatt
+#import pygatt
 import json
 from uuid import UUID
-from pygatt.backends import Characteristic
+#from pygatt.backends import Characteristic
+from bleak import BleakClient
+from bleak.backends.service import BleakGATTService
+from bleak.backends.bluezdbus.characteristic import BleakGATTCharacteristicBlueZDBus
+
+
 
 class Lightbulb:
 
@@ -15,13 +20,15 @@ class Lightbulb:
   __wl_template = None
   __ef_template = None
 
+  async def connect(self):
+    #if hasattr(self,"__device" ) and self.__device != None: self.__device.disconnect() 
+    self.__device = BleakClient(self.__address) #self.__adapter.connect(self.__address)
+    await self.__device.connect()
 
   def __init__(self, settings):
     self.__address = settings["address"]
     self.__name = settings["name"]
-    self.__adapter = pygatt.GATTToolBackend()
-    self.__adapter.start()
-    self.__device = self.__adapter.connect(settings["address"])
+    self.__p_uuid = settings["power"]["uuid"]
     self.__p_handle = settings["power"]["handle"]
     self.__p_template = settings["power"]["commandtemplate"]
     self.__p_on = settings["power"]["onval"]
@@ -34,31 +41,36 @@ class Lightbulb:
 
     
     if "rgb" in settings:
+      self.__rgb_uuid = settings["rgb"]["uuid"]
       self.__rgb_handle = settings["rgb"]["handle"]
       self.__rgb_template = settings["rgb"]["commandtemplate"]
       self.__state["colour"] = {"r":0, "g": 0, "b": 0}
     
     if "white-level" in settings:
+      self.__wl_uuid = settings["white-level"]["uuid"]
       self.__wl_handle = settings["white-level"]["handle"]
       self.__wl_template = settings["white-level"]["commandtemplate"]
       self.__state["white_level"] = 0
 
     
     if "effects" in settings:
+      self.__ef_uuid = settings["effects"]["uuid"]
       self.__ef_handle = settings["effects"]["handle"]
       self.__ef_template = settings["effects"]["commandtemplate"]
       self.__ef_effectlist = settings["effects"]["list"]
       self.__state["effect"] = "none"
 
-    if "query" in settings:
-      self.__cb_template = settings["query"]["responsetemplate"]
-#      this line is a hack to get response handling working when direct subscribe causes a charateristic discovery crash
-      self.__device._callbacks[settings["query"]["responsehandle"]].add(self.__handle_data)
-      #this hack of manually creating the characteristic is becuase characteristic discovery causes issues also works
-#      self.__device._characteristics[UUID(settings["query"]["responseuuid"])] = Characteristic(settings["query"]["responseuuid"],settings["query"]["responsehandle"])
+#    if "query" in settings:
+#      self.__cb_template = settings["query"]["responsetemplate"]
+
+      #this line is a hack to get response handling working when direct subscribe causes a charateristic discovery crash
+#      self.__device._callbacks[settings["query"]["responsehandle"]].add(self.__handle_data)
+
+      #this is how the callback should be registered....
 #      self.__device.subscribe(settings["query"]["responseuuid"],
 #                     callback=self.__handle_data)
-      self.__device.char_write_handle(7, bytearray(settings["query"]["command"]))
+
+#      self.__send_data(7, bytearray(settings["query"]["command"]))
 
 
 
@@ -126,9 +138,15 @@ class Lightbulb:
 
     self.__state = newstate
 
+  async def __send_data(self, uuid, handle, packet: bytearray):
+      #self.__state.rssi = self.__device.get_rssi()
+      #while (self.__state.rssi == None):
+      #  self.__connect()
+    #char = BleakGATTCharacteristicBlueZDBus({"Flags":["write"]},"/0007", uuid)
+    await self.__device.write_gatt_descriptor(handle, packet)
 
 
-  def setRGB(self, r, g, b):
+  async def setRGB(self, r, g, b):
     if (r == g == b):
       self.setWhite(self.__state["brightness"])
     else:
@@ -150,10 +168,10 @@ class Lightbulb:
         elif byte == "g": send.append(g)
         elif byte == "b": send.append(b)
         else: send.append(byte)
-      self.__device.char_write_handle(self.__rgb_handle, bytearray(send))
+      await self.__send_data(self.__uuid_handle, self.__rgb_handle, bytearray(send))
 
 
-  def setWhite(self, wl):
+  async def setWhite(self, wl):
     self.__state["white_value"] = wl
     self.__state["brightness"] = wl
     self.__state["color"] = {"r":255,"g":255,"b":255}
@@ -163,10 +181,10 @@ class Lightbulb:
     for byte in self.__wl_template:
       if byte == "wl": send.append(wl)
       else: send.append(byte)
-    self.__device.char_write_handle(self.__wl_handle, bytearray(send))
+    await self.__send_data(self.__wl_uuid, self.__wl_handle, bytearray(send))
 
 
-  def setBrightness(self, br):
+  async def setBrightness(self, br):
     self.__state["brightness"] = br
     if not self.__state["effect"]:
       color = self.__state["color"]
@@ -174,12 +192,12 @@ class Lightbulb:
       g = color["g"]
       b = color["b"]
       if r == g == b:
-        self.setWhite(br)
+        await self.setWhite(br)
       else:
-        self.setRGB(r,g,b)
+        await self.setRGB(r,g,b)
 
 
-  def setEffect(self, ef):
+  async def setEffect(self, ef):
     self.__state["effect"] = ef
     self.__state["color"] = {"r":0,"g":0,"b":0}
     self.__state["white_value"] = 0
@@ -190,32 +208,30 @@ class Lightbulb:
       if byte == "ef": send.append(self.__ef_effectlist[ef])
       elif byte == "es": send.append(self.__state["effect_speed"])
       else: send.append(byte)
-    self.__device.char_write_handle(self.__ef_handle, bytearray(send))
+    await self.__send_data(self.__ef_uuid, self.__ef_handle, bytearray(send))
 
   def setEffectSpeed(self, es):
     self.__state["effect_speed"] = es
     if self.__state["effect"]: self.setEffect(self.__state["effect"])
 
-  def turnOff(self):
+  async def turnOff(self):
     if self.__state["state"] != "OFF":
       self.__state["state"] = "OFF"
       send = []
       for byte in self.__p_template:
         if byte == "pw": send.append(self.__p_off)
         else: send.append(byte)
-      print(send)
-      self.__device.char_write_handle(self.__p_handle, bytearray(send))
+      await self.__send_data(self.__p_uuid, self.__p_handle, bytearray(send))
 
 
-  def turnOn(self):
+  async def turnOn(self):
     if self.__state["state"] != "ON":
       self.__state["state"] = "ON"
       send = []
       for byte in self.__p_template:
         if byte == "pw": send.append(self.__p_on)
         else: send.append(byte)
-      print(send)
-      self.__device.char_write_handle(self.__p_handle, bytearray(send))
+      await self.__send_data(self.__p_uuid, self.__p_handle, bytearray(send))
 
 
   def toggle(self):
@@ -264,5 +280,6 @@ class Lightbulb:
 
     return json.dumps(haConfig)
 
-  def disconnect(self):
-    self.__adapter.stop()
+  async def disconnect(self):
+    print("Disconnecting from Lightbulb")
+    await self.__device.disconnect()

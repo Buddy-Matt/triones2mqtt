@@ -250,8 +250,8 @@ class Lightbulb(btle.DefaultDelegate):
     }
 
     if self.__rgb_template != None: haConfig["rgb"] = True
-    if self.__wl_template != None: haConfig["white_value"] = True
-    haConfig["brightness"] = haConfig["rgb"] or haConfig["white_value"]
+#    if self.__wl_template != None: haConfig["white_value"] = True
+    haConfig["brightness"] = haConfig["rgb"] # or haConfig["white_value"]
 
     if self.__ef_template != None:
       haConfig["effect"] = True
